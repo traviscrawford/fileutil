@@ -1,0 +1,145 @@
+#!/usr/bin/env python2.6
+
+import cmd
+import fileutil.localutil
+import fileutil.zkutil
+import logging
+import os
+import sys
+
+from fileutil import *
+from optparse import OptionParser
+
+logger = logging.getLogger()
+
+class FileUtil(cmd.Cmd):
+  def _get_util(self, path):
+    """Based on the path name, return the appropriate utility
+    and modified path"""
+    if path.startswith('zk://'):
+      return fileutil.zkutil.ZKUtil(path[5:]), path[5:]
+    elif path.startswith('/'):
+      return fileutil.localutil.LocalUtil(path), path
+    else:
+      logger.critical('Unknown file type!')
+      sys.exit(1)
+
+  def emptyline(self):
+    self.do_help(None)
+    sys.exit(1)
+
+  def do_help(self, line):
+    print ("""fileutil provides a familiar interface to common filesystem commands. It enables
+one to, say, copy a local file to ZooKeeper, or cat a ZooKeeper file, through
+a common command-line tool. Adding new filesystem types is very straightforward.
+
+Modes:
+
+  cat <path>
+  cp [-f] <source> <destination>
+  ls <path>
+  mkdir <path>
+  rm <path>
+  stat <path>
+
+Filesystem Types:
+
+  /local/absolute/path/name
+  zk:///zookeeper/znode
+""")
+
+  def do_ls(self, line):
+    parser = OptionParser()
+    (options, args) = parser.parse_args(line.split())
+
+    try:
+      path = args[0]
+    except IndexError:
+      logger.critical('No path specified!')
+      sys.exit(1)
+
+    util, path = self._get_util(line)
+    print '\n'.join([x for x in sorted(util.ls())])
+
+  def do_mkdir(self, line):
+    util, path = self._get_util(line)
+    util.mkdir()
+
+  def do_cat(self, line):
+    util, path = self._get_util(line)
+    print util.cat(), # Suppress newline
+
+  def do_cp(self, line):
+    parser = OptionParser()
+    parser.add_option('-f', dest='force', action='store_true', default=False)
+    (options, args) = parser.parse_args(line.split())
+
+    try:
+      source = args[0]
+    except IndexError:
+      logger.critical('No source path specified!')
+      sys.exit(1)
+
+    try:
+      destination = args[1]
+    except IndexError:
+      logger.critical('No destination path specified!')
+      sys.exit(1)
+
+    sutil, source = self._get_util(source)
+    if not sutil.exists():
+      logger.critical('Source file <%s> does not exist!' % source)
+      sys.exit(1)
+    source_contents = None
+
+    dutil, destination = self._get_util(destination)
+    if dutil.exists():
+      if options.force:
+        if sutil.read() == dutil.read():
+          logger.info('Not copying Source and destination file match.')
+        dutil.rm()
+      else:
+        logger.critical('Destination file <%s> exists but not forcing!' % destination)
+        sys.exit(1)
+
+    dutil.write(sutil.read())
+
+  def do_rm(self, line):
+    parser = OptionParser()
+    (options, args) = parser.parse_args(line.split())
+
+    try:
+      path = args[0]
+    except IndexError:
+      logger.error('No path specified!')
+      sys.exit(1)
+
+    util, path = self._get_util(line)
+    if util.exists():
+      util.rm()
+    else:
+      logger.error('File <%s> does not exist.' % util.path)
+
+  def do_stat(self, line):
+    """usage: stat <path>"""
+    util, path = self._get_util(line)
+    print util.stat()
+
+
+def main():
+  #logger.setLevel(logging.DEBUG)
+  logger.setLevel(logging.INFO)
+  formatter = logging.Formatter("%(message)s")
+  stream_handler = logging.StreamHandler()
+  stream_handler.setFormatter(formatter)
+  logger.addHandler(stream_handler)
+
+  fu = FileUtil()
+  fu.onecmd(' '.join(sys.argv[1:]))
+
+
+if __name__ == '__main__':
+  try:
+    main()
+  except KeyboardInterrupt:
+    logger.critical('Exiting due to KeyboardInterrupt.')
