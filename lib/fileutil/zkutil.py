@@ -1,9 +1,20 @@
+import logging
+import os
+import sys
 import zookeeper
 from baseutil import BaseUtil
 
+logger = logging.getLogger()
 
 class ZKUtil(BaseUtil):
   def __init__(self, zk_servers, path):
+    if zk_servers is None:
+      try:
+        zk_servers = os.environ['ZK_SERVERS']
+      except KeyError:
+        logger.critical('No ZooKeeper servers specified! Exiting.')
+        sys.exit(1)
+    zookeeper.set_debug_level(zookeeper.LOG_LEVEL_ERROR)
     self.zh = zookeeper.init(zk_servers)
     self.ZOO_OPEN_ACL_UNSAFE = {'perms': 0x1f,
         'scheme': 'world', 'id': 'anyone'}
@@ -35,3 +46,4 @@ class ZKUtil(BaseUtil):
 
   def write(self, contents):
     zookeeper.create(self.zh, self.path, contents, [self.ZOO_OPEN_ACL_UNSAFE])
+
